@@ -66,6 +66,9 @@ foreach(example ${stdexec_examples})
     def_example(${example})
 endforeach()
 
+# Basic examples for learning sender concepts
+add_subdirectory(basic)
+
 if(STDEXEC_ENABLE_CUDA)
     add_subdirectory(nvexec)
 endif()
