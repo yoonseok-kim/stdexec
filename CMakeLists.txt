@@ -475,6 +475,7 @@ endif()
 # Configure example executables
 if(STDEXEC_BUILD_EXAMPLES)
     add_subdirectory(examples)
+    add_subdirectory(playground)
 endif()
 
 if (STDEXEC_IS_TOP_LEVEL)
