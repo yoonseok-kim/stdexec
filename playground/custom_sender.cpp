@@ -149,9 +149,9 @@ static void example_multi_channel_sender()
   // 카운터 리셋하고 2번째 시도
   counter   = 0;
   auto snd2 = flaky_sender{.attempt_ = 3, .counter_ = &counter};
-  // let_error로 재시도 패턴 (간단 버전)
-  auto result = ex::sync_wait(snd2 | ex::upon_error([](std::string) { return 0; }));
-  std::printf("  result (1st try of snd2): %d\n", result.value() == std::tuple{0} ? 0 : -99);
+  // upon_error로 에러를 기본값으로 변환
+  auto [val2] = ex::sync_wait(snd2 | ex::upon_error([](std::string) { return 0; })).value();
+  std::printf("  result (1st try of snd2): %d\n", val2);  // 0 (아직 attempt_ 미달)
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -200,9 +200,11 @@ static void example_receiver_adaptor()
   int result = -1;
 
   // 간단한 collecting receiver
-  struct [[maybe_unused]] collect_receiver
+  STDEXEC_PRAGMA_PUSH()
+  STDEXEC_PRAGMA_IGNORE_GNU("-Wunused-local-typedefs")
+  struct collect_receiver
   {
-    using receiver_concept [[maybe_unused]] = ex::receiver_t;
+    using receiver_concept = ex::receiver_t;
 
     int* result_;
 
@@ -215,6 +217,7 @@ static void example_receiver_adaptor()
 
     void set_stopped() && noexcept {}
   };
+  STDEXEC_PRAGMA_POP()
 
   // doubling_receiver로 래핑
   auto inner_rcvr = collect_receiver{&result};
@@ -376,15 +379,18 @@ struct flaky3
   using completion_signatures =
     ex::completion_signatures<ex::set_value_t(int), ex::set_error_t(std::exception_ptr)>;
 
+  int* attempt_counter_;  // 외부 카운터 (retry가 같은 sender를 재사용하므로 포인터)
+
   template <class R>
   struct op
   {
-    R rcvr_;
+    R    rcvr_;
+    int* counter_;
 
     void start() & noexcept
     {
-      static int i = 0;
-      if (++i < 3)
+      int i = ++(*counter_);
+      if (i < 3)
       {
         std::printf("  flaky3: fail (attempt %d)\n", i);
         ex::set_error(static_cast<R&&>(rcvr_), std::exception_ptr{});
@@ -400,7 +406,7 @@ struct flaky3
   template <class R>
   auto connect(R r) const -> op<R>
   {
-    return {static_cast<R&&>(r)};
+    return {static_cast<R&&>(r), attempt_counter_};
   }
 };
 
@@ -409,7 +415,8 @@ static void example_retry_sender()
   section("4. Retry Sender 패턴");
 
   // retry로 감싸면 에러 시 자동 재시도
-  auto [val] = ex::sync_wait(retry(flaky3{})).value();
+  int attempt_counter = 0;
+  auto [val]          = ex::sync_wait(retry(flaky3{&attempt_counter})).value();
   std::printf("  retry(flaky3) => %d\n", val);  // 30 (3번째 시도: 3*10)
 }
 

@@ -211,7 +211,7 @@ static auto cleanup_task() -> exec::task<int>
 
   result = 7;
   std::printf("  [main] result set to: %d\n", result);
-  co_return result;  // 70이 리턴됨 (cleanup 2: *10, 그 후 cleanup 1: 출력)
+  co_return result;  // 반환값은 7. cleanup은 co_return 후에 실행됨
 }
 
 static void example_at_coroutine_exit()
@@ -223,10 +223,10 @@ static void example_at_coroutine_exit()
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// 6. task에서 에러/취소 처리
+// 6. task에서 에러 처리
 //
 // task 내에서 에러가 발생하면 exception이 전파됩니다.
-// stopped_as_optional()로 취소를 optional로 변환하여 처리할 수 있습니다.
+// try/catch로 에러를 복구하고 대체 값을 반환할 수 있습니다.
 ///////////////////////////////////////////////////////////////////////////////
 static auto may_fail(bool succeed) -> exec::task<int>
 {
@@ -284,6 +284,8 @@ auto main() -> int
 }
 
 #else
+
+#  include <cstdio>
 
 auto main() -> int
 {

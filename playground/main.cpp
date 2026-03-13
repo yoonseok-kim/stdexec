@@ -22,9 +22,7 @@
 #include <exec/static_thread_pool.hpp>
 
 #include <cstdio>
-#include <iostream>
 #include <string>
-#include <thread>
 
 // stdexec 네임스페이스에 대한 편의 alias
 // 관례적으로 ex 또는 stdexec를 사용합니다.
@@ -136,12 +134,12 @@ static void example_let_value()
                 | ex::let_value(
                     [](std::string& msg)
                     {
-                      // 1단계: 메시지 대문자 변환 (실제로는 비동기 작업일 수 있음)
-                      for (auto& ch: msg)
-                      {
-                        ch = static_cast<char>(std::toupper(ch));
-                      }
-                      return ex::just(std::move(msg));
+                      // 1단계: 대문자 변환 후 새 sender 반환 (비동기 작업 가정)
+                      std::string upper;
+                      upper.reserve(msg.size());
+                      for (auto ch: msg)
+                        upper += static_cast<char>(std::toupper(ch));
+                      return ex::just(std::move(upper));
                     })
                 | ex::let_value(
                     [](std::string& msg)
@@ -156,7 +154,8 @@ static void example_let_value()
 ///////////////////////////////////////////////////////////////////////////////
 // 4. when_all() - 병렬 결합 (join)
 //
-// when_all(senders...) : 여러 sender를 동시에 실행하고, 모든 결과를 합침
+// when_all(senders...) : 여러 sender를 결합하고 모든 결과를 합침
+//                        (scheduler에 따라 병렬 실행 가능)
 //   - 모든 sender가 성공하면 값들이 하나의 tuple로 합쳐짐
 //   - 하나라도 에러/취소되면 나머지도 취소됨
 //   - void sender의 결과는 생략됨
@@ -165,7 +164,7 @@ static void example_when_all()
 {
   section("4. when_all() - 병렬 결합");
 
-  // 세 개의 sender를 동시에 실행
+  // 세 개의 sender를 결합
   auto snd = ex::when_all(ex::just(10), ex::just(20), ex::just(30));
 
   // 결과는 flattened tuple: (int, int, int)
@@ -270,7 +269,6 @@ static void example_bulk()
                                    std::printf("%s%d", i > 0 ? ", " : "", vec[i]);
                                  }
                                  std::printf("]\n");
-                                 return vec;
                                }));
   ex::sync_wait(std::move(snd));
 
@@ -320,9 +318,10 @@ static void example_error_handling()
   // let_error: 에러를 비동기적으로 복구 (sender 반환)
   auto snd3 = ex::just_error(std::string{"fail"})
             | ex::let_error(
-                [](std::string&)
+                [](std::string& err)
                 {
                   // 에러를 복구하고 새로운 비동기 작업으로 대체
+                  std::printf("  recovering from: %s\n", err.c_str());
                   return ex::just(999);
                 });
   auto [v3] = ex::sync_wait(std::move(snd3)).value();
@@ -399,7 +398,7 @@ static void example_pipeline()
                              }));
   };
 
-  // 세 센서를 병렬로 읽고 결과를 합산
+  // 세 센서를 병렬로 읽고 결과의 평균을 계산
   auto pipeline = ex::when_all(read_sensor(1, 10.0), read_sensor(2, 20.0), read_sensor(3, 30.0))
                 | ex::then(
                     [](double a, double b, double c)

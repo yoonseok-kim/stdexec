@@ -55,13 +55,12 @@ static void example_stop_token_basics()
 
   // stop_callback 등록: stop 발생 시 즉시 호출
   bool callback_called = false;
-  // inplace_stop_callback은 명시적 템플릿 인자가 필요
-  ex::inplace_stop_callback<std::function<void()>> cb{token,
-                                                      [&]
-                                                      {
-                                                        callback_called = true;
-                                                        std::printf("  stop_callback invoked!\n");
-                                                      }};
+  auto cb_fn           = [&]
+  {
+    callback_called = true;
+    std::printf("  stop_callback invoked!\n");
+  };
+  ex::inplace_stop_callback<decltype(cb_fn)> cb{token, std::move(cb_fn)};
 
   // stop 요청
   source.request_stop();
@@ -73,24 +72,23 @@ static void example_stop_token_basics()
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// 2. sync_wait와 stop token: 취소 시 nullopt 반환
+// 2. stopped 채널 처리: upon_stopped, stopped_as_optional
 //
-// sync_wait는 stop token이 환경에 있으면 자식 sender에게 전달
-// sender가 set_stopped()로 완료되면 sync_wait는 nullopt 반환
+// sender가 set_stopped()로 완료되면 sync_wait는 nullopt을 반환합니다.
+// upon_stopped로 stopped를 값으로 변환하거나,
+// stopped_as_optional로 optional<T>로 변환할 수 있습니다.
 ///////////////////////////////////////////////////////////////////////////////
-static void example_sync_wait_stopped()
+static void example_stopped_handling()
 {
-  section("2. sync_wait 취소 시 nullopt 반환");
+  section("2. stopped 채널 처리");
 
-  // just_stopped(): 즉시 set_stopped()로 완료하는 sender
-  // sync_wait는 stopped 완료 시 nullopt를 반환 (값 완료 없이도 OK)
-  auto result = ex::sync_wait(ex::just_stopped() | ex::upon_stopped([] { return 0; }));
-  std::printf("  just_stopped() => %s\n", result.has_value() ? "has value" : "nullopt (cancelled)");
+  // upon_stopped: 취소를 값(0)으로 변환하여 sync_wait이 값을 반환하도록 함
+  auto [v1] = ex::sync_wait(ex::just_stopped() | ex::upon_stopped([] { return 0; })).value();
+  std::printf("  just_stopped()|upon_stopped => %d (stopped를 값으로 변환)\n", v1);
 
-  // stopped_as_optional: 값 채널이 있는 sender에서 stopped를 optional<T>로 변환
-  // just_stopped()에는 값 채널이 없으므로, 값을 가진 sender에 붙여야 함
-  auto snd   = ex::just(42) | ex::stopped_as_optional();
-  auto [opt] = ex::sync_wait(std::move(snd)).value();
+  // stopped_as_optional: 성공 시 optional{value}, 취소 시 empty optional
+  // just(42)는 취소되지 않으므로 optional에 값이 있음
+  auto [opt] = ex::sync_wait(ex::just(42) | ex::stopped_as_optional()).value();
   std::printf("  just(42)|stopped_as_optional => %d\n", opt.value());
 }
 
@@ -104,20 +102,17 @@ static void example_when_all_cancellation()
 {
   section("3. when_all 자동 취소 전파");
 
-  std::atomic<int> ran{0};
-
   exec::single_thread_context ctx1, ctx2;
 
   // ctx1에서는 빠르게 에러로 완료
-  // ctx2에서는 stop_token을 확인하며 실행 (stop 요청 시 set_stopped)
+  // ctx2에서는 느리게 작업 수행 (에러가 먼저 완료되면 취소됨)
   auto slow_work = ex::starts_on(ctx2.get_scheduler(),
                                  ex::just()
                                    | ex::then(
-                                     [&]
+                                     []
                                      {
-                                       // stop이 요청되었는지 확인
                                        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                                       ran.fetch_add(1, std::memory_order_relaxed);
+                                       std::printf("  slow_work completed\n");
                                      }));
 
   auto fast_error = ex::starts_on(ctx1.get_scheduler(), ex::just_error(std::string{"fast error"}));
@@ -180,14 +175,14 @@ static void example_unless_stop_requested()
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// 5. async_scope에서의 취소 패턴
+// 5. async_scope에서의 작업 관리
 //
-// async_scope에 spawn된 작업들은 scope가 on_empty()를 await하는 동안
-// 외부에서 stop을 요청하면 모두 취소될 수 있습니다.
+// async_scope에 spawn된 작업들은 on_empty()로 모든 작업 완료를 대기할 수 있습니다.
+// spawn은 void sender만 받으며, 결과가 필요 없는 fire-and-forget 패턴에 적합합니다.
 ///////////////////////////////////////////////////////////////////////////////
-static void example_scope_cancellation()
+static void example_scope_fan_out()
 {
-  section("5. async_scope + 외부 취소");
+  section("5. async_scope - fan-out / fan-in 패턴");
 
   exec::static_thread_pool pool{4};
   auto                     sched = pool.get_scheduler();
@@ -225,10 +220,10 @@ auto main() -> int
   std::printf("===============================================\n");
 
   example_stop_token_basics();
-  example_sync_wait_stopped();
+  example_stopped_handling();
   example_when_all_cancellation();
   example_unless_stop_requested();
-  example_scope_cancellation();
+  example_scope_fan_out();
 
   std::printf("\n===============================================\n");
   std::printf("Done!\n");

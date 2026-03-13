@@ -117,32 +117,26 @@ static void example_accumulate_pattern()
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// 4. exec::repeat: 무한 반복 (외부 취소 필요)
+// 4. repeat_n 추가 예제: 사이드 이펙트 관찰
 //
-// repeat()은 sender가 에러나 취소로 완료될 때까지 무한 반복합니다.
-// void sender가 stopped로 완료되면 repeat도 stopped로 완료됩니다.
-// upon_stopped으로 처리할 수 있습니다.
+// repeat_n은 정해진 횟수만큼 반복하므로 유한 반복에 적합합니다.
+// (exec::repeat()은 무한 반복으로 외부 취소가 필요하지만,
+//  유한 반복이 필요한 대부분의 경우에는 repeat_n이 더 적합합니다)
 ///////////////////////////////////////////////////////////////////////////////
-static void example_repeat_with_stop()
+static void example_repeat_n_with_sideeffect()
 {
-  section("4. exec::repeat - 무한 반복 + 취소로 종료");
-
-  // repeat_until과 달리 repeat는 void sender를 받으며 에러/취소까지 무한 반복
-  // stopped_as_error로 취소를 에러로 변환하거나
-  // upon_stopped으로 취소를 값으로 변환하여 종료
+  section("4. repeat_n - 사이드 이펙트 관찰");
 
   int count = 0;
 
-  // repeat_n을 활용한 "exactly N iterations" 패턴
-  // (repeat 자체는 무한이므로, 유한 반복은 repeat_n이 더 적합)
   auto snd = ex::just()
            | ex::then(
                [&]
                {
                  ++count;
-                 std::printf("  repeat: count=%d\n", count);
+                 std::printf("  iteration: count=%d\n", count);
                })
-           | exec::repeat_n(3);  // 3번 반복 후 종료
+           | exec::repeat_n(3);
 
   ex::sync_wait(std::move(snd));
   std::printf("  final count: %d\n", count);  // 3
@@ -185,7 +179,7 @@ auto main() -> int
   example_repeat_n();
   example_repeat_until();
   example_accumulate_pattern();
-  example_repeat_with_stop();
+  example_repeat_n_with_sideeffect();
   example_repeat_on_thread_pool();
 
   std::printf("\n===================================\n");
